@@ -7,7 +7,6 @@
 #define CUP_LIST_IMPLEMENTATION
 #include "list.h"
 
-#define CUP_HASHTABLE_IMPLEMENTATION
 #include "hashtable.h"
 
 // Utilities
