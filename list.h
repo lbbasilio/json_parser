@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-typedef struct {
+typedef struct list_node_t {
 	struct list_node_t* next;
 	uint64_t data_size;
 	void* data;
