@@ -5,7 +5,7 @@
 
 #define BUCKETS 11
 
-typedef struct {
+typedef struct hashtable_node_t {
 	struct hashtable_node_t* next;
 	char* key;
 	void* data;
