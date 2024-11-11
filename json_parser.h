@@ -49,6 +49,6 @@ struct Json_Node
 
 int json_parse2(char* json, Json_Node** object);
 Json_Node* json_get(Json_Node* object, char* key);
-void json_delete(Json_Node* json);
+void json_delete(Json_Node* object);
 
 #endif

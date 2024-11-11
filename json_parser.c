@@ -919,3 +919,20 @@ Json_Node* json_get(Json_Node* object, char* key)
 
 	return NULL;
 }
+
+void json_delete(Json_Node* object)
+{
+	if (!object)
+		return;
+
+	if (object->key)
+		free(object->key);
+
+	if (object->type == JSON_OBJECT || object->type == JSON_ARRAY)
+		json_delete(object->value.child);
+
+	if (object->next)
+		json_delete(object->next);
+	
+	free(object);
+}
