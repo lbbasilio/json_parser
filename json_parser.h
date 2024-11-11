@@ -47,7 +47,6 @@ struct Json_Node
 	Json_Node_Value value;
 };
 
-int json_parse(char* json, Json_Node** object);
 Json_Node* json_parse(char* json, int* error);
 Json_Node* json_get(Json_Node* object, char* key);
 void json_delete(Json_Node* object);
