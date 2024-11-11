@@ -5,10 +5,10 @@
 
 #include "json_parser.h"
 
-#define CUP_LIST_IMPLEMENTATION
+/*#define CUP_LIST_IMPLEMENTATION
 #include "list.h"
 
-#include "hashtable.h"
+#include "hashtable.h"*/
 
 // Utilities
 static uint8_t json_is_whitespace(const char c)
@@ -47,6 +47,7 @@ static uint8_t json_is_num_delim(const char c)
 	return strchr(num_delim, c) != NULL;
 }
 
+/*
 static char* parse_string(char* start, char** str, int64_t* size) 
 {
 	*str = NULL;
@@ -394,17 +395,11 @@ hashtable_t* json_parse(char* json)
 	while (*json != '{' && *json != '\0') json++;
 	parse_object(json, &ht, &size);
 	return ht;
-}
+}*/
 
-int json_parse2(char* json, Json_Object** object)
+static int parse_string2(char** ptr, Json_Node_Value* value)
 {
-	return 0;
-}
-
-static int parse_string2(char** ptr, char** value)
-{
-//static char* parse_string(char* start, char** str, int64_t* size) 
-	*value = NULL;
+	value->string_data = NULL;
 
 	// S0: Expecting " character
 	// S1: Checking for \ character or end of string
@@ -441,24 +436,22 @@ static int parse_string2(char** ptr, char** value)
 						else return JSON_ERROR_STRING;
 						break;
 		}
-
-		++it;
 	}
 
 STR_SUCCESS:
 	size_t len = it - *ptr;
-	*value = malloc(len);
-	memcpy(*value, (*ptr) + 1, len - 1);
-	(*value)[len-1] = '\0';
+	value->string_data = malloc(len);
+	memcpy(value->string_data, (*ptr) + 1, len - 1);
+	value->string_data[len-1] = '\0';
 
-	*ptr = it++;
+	*ptr = it;
 	return JSON_OK;
 }
 
-static int parse_bool2(char** ptr, bool** value)
+static int parse_bool2(char** ptr, Json_Node_Value* value)
 {
 //static char* parse_bool(char* start, int64_t** b, int64_t* size)
-	*value = NULL;
+	value->bool_data = 0;
 
 	// S0: Expecting t or f characters
 	// S1: Expecting r character
@@ -489,7 +482,7 @@ static int parse_bool2(char** ptr, bool** value)
 						break;
 						
 			case S3:	if (*it == 'e') {
-							*value = true;
+							value->bool_data = true;
 							goto BOOL_SUCCESS;
 						}
 						else return JSON_ERROR_BOOL;
@@ -508,7 +501,7 @@ static int parse_bool2(char** ptr, bool** value)
 						break;
 
 			case S7:	if (*it == 'e') {
-							**value = false;
+							value->bool_data = false;
 							goto BOOL_SUCCESS;
 						}
 						else return JSON_ERROR_BOOL;
@@ -521,11 +514,8 @@ BOOL_SUCCESS:
 	return JSON_OK;
 }
 
-static int parse_null2(char** ptr, void** value)
-//static char* parse_null(char* start, void** ptr, int64_t* size)
+static int parse_null2(char** ptr)
 {
-	*value = NULL;
-
 	// S0: Expecting n character
 	// S1: Expecting u character
 	// S2: Expecting l character
@@ -552,19 +542,18 @@ static int parse_null2(char** ptr, void** value)
 	}
 
 NULL_SUCCESS:
-	*ptr = ++it;
+	*ptr = it;
 	return JSON_OK;
 }
 
-static int parse_value2(char** ptr, enum Json_Object_Type* type, void** object);
-static int parse_object2(char** ptr, Json_Object** object);
+static int parse_value2(char** ptr, enum Json_Node_Type* type, Json_Node_Value* value);
+static int parse_object2(char** ptr, Json_Node_Value* value);
 
-static int parse_array2(char** ptr, Json_Object** object)
-//static char* parse_array(char* start, list_t** l, int64_t* size)
+static int parse_array2(char** ptr, Json_Node_Value* array)
 {
-	*object = malloc(sizeof(Json_Object));
-	memset(*object, 0, sizeof(Json_Object));
-	Json_Object* last_child = NULL;
+	array->child = malloc(sizeof(Json_Node));
+	memset(array->child, 0, sizeof(Json_Node));
+	array->child->type = JSON_ARRAY;
 
 	// S0: Expecting [ character
 	// S1: Expecting ] character or json value, ignores whitespaces
@@ -573,11 +562,11 @@ static int parse_array2(char** ptr, Json_Object** object)
 	enum array_machine_state { S0, S1, S2, S3 };
 	enum array_machine_state state = S0;
 
+	Json_Node* last_child = NULL;
+
 	int error;
 	char* it;
 	for (it = *ptr; *it != '\0'; ++it) {
-		int64_t el_size = 0;
-		void* el_val = NULL;
 		switch (state) {
 
 			case S0:	if (*it == '[') state = S1;
@@ -589,27 +578,22 @@ static int parse_array2(char** ptr, Json_Object** object)
 						else {
 
 							// Parse JSON value
-							void* value;
-							enum Json_Object_Type type;
+							Json_Node_Value value;
+							enum Json_Node_Type type;
 							if ((error = parse_value2(&it, &type, &value))) 
 								goto ARR_ERR;
 
 							// Populate node
-							Json_Object* child;
-							if (type == JSON_ARRAY || JSON_OBJECT) {
-								child = (Json_Object*)(value);
+							Json_Node* child;
+							if (type == JSON_ARRAY || type == JSON_OBJECT) {
+								child = value.child;
 							}
 							else {
-								child = malloc(sizeof(Json_Object));
-								memset(child, 0, sizeof(Json_Object));
+								child = malloc(sizeof(Json_Node));
+								memset(child, 0, sizeof(Json_Node));
+								child->value = value;
 							}
 							child->type = type;
-							switch (type) {
-								case JSON_INT:
-								case JSON_BOOL: child->int_data = (long)value; break;
-								case JSON_STRING: child->string_data = (char*)value; break;
-								case JSON_DOUBLE: child->double_data = (double)(long)value; break;
-							}
 
 							// Insert node into parent
 							if (last_child) {
@@ -617,11 +601,10 @@ static int parse_array2(char** ptr, Json_Object** object)
 								child->prev = last_child;
 							}
 							else {
-								(*object)->child = child;
+								// TODO: WTF?
+								array->child->value.child = child;
 							}
 							last_child = child;
-							
-							--it;
 							state = S2;
 						}
 						break;
@@ -635,27 +618,22 @@ static int parse_array2(char** ptr, Json_Object** object)
 			case S3:	if (json_is_whitespace(*it)) state = S3;
 						else {
 							// Parse JSON value
-							void* value;
-							enum Json_Object_Type type;
+							Json_Node_Value value;
+							enum Json_Node_Type type;
 							if ((error = parse_value2(&it, &type, &value))) 
 								goto ARR_ERR;
 
 							// Populate node
-							Json_Object* child;
-							if (type == JSON_ARRAY || JSON_OBJECT) {
-								child = (Json_Object*)value;
+							Json_Node* child;
+							if (type == JSON_ARRAY || type == JSON_OBJECT) {
+								child = value.child;
 							}
 							else {
-								child = malloc(sizeof(Json_Object));
-								memset(child, 0, sizeof(Json_Object));
+								child = malloc(sizeof(Json_Node));
+								memset(child, 0, sizeof(Json_Node));
+								child->value = value;
 							}
 							child->type = type;
-							switch (type) {
-								case JSON_INT:
-								case JSON_BOOL: child->int_data = (long)value; break;
-								case JSON_STRING: child->string_data = (char*)value; break;
-								case JSON_DOUBLE: child->double_data = (double)(long)value; break;
-							}
 
 							// Insert node into parent
 							if (last_child) {
@@ -663,36 +641,35 @@ static int parse_array2(char** ptr, Json_Object** object)
 								child->prev = last_child;
 							}
 							else {
-								(*object)->child = child;
+								// TODO: WTF?
+								array->child->value.child = child;
 							}
 							last_child = child;
-							
-							--it;
 							state = S2;
 						}
 		}
 	}
 
 ARR_ERR:
-	Json_Object* p = (*object)->child;
+	// TODO: WTF?
+	Json_Node* p = array->child->value.child;
 	while (p) {
-		Json_Object* temp = p->next;
+		Json_Node* temp = p->next;
 		free(p);
 		p = temp;
 	}
-	free(*object);
+	free(array->child);
 	return JSON_ERROR_ARRAY;
 
 ARR_SUCCESS:
-	*ptr = ++it;
+	*ptr = it;
 	return JSON_OK;
 }
 
-static int parse_number2(char** ptr, enum Json_Object_Type* type, void** value)
-//static char* parse_number(char* start, void** num, int64_t* size)
+static int parse_number2(char** ptr, enum Json_Node_Type* type, Json_Node_Value* value)
 {
-	*value = NULL;
-	*type = JSON_INT;
+	value->long_data = 0;
+	*type = JSON_LONG;
 
 	enum number_machine_state { S0, S1, S2, S3, S4, S5, S6, S7, S8, S9 };
 	enum number_machine_state state = S0;
@@ -764,46 +741,44 @@ NUM_SUCCESS:;
 	
 	char buffer[0x20];
 	size_t len = it - *ptr + 2;
-	char* s = malloc(len);
 	memcpy(buffer, *ptr, len - 1);
 	buffer[len-1] = '\0';
-	if (*type == JSON_INT) 
-		*value = (void*)atoll(buffer);
+	if (*type == JSON_LONG) 
+		value->long_data = atoll(buffer);
 	else 
-		*value = (void*)(long)atof(buffer);
+		value->double_data = atof(buffer);
 
-	*ptr = it;
+	*ptr = --it;
 	return JSON_OK;
 }
 
-static int parse_value2(char** ptr, enum Json_Object_Type* type, void** value)
+static int parse_value2(char** ptr, enum Json_Node_Type* type, Json_Node_Value* value)
 {
-//static char* parse_value(char* start, void** val, int64_t* size)
-	*value = NULL;
+	value->long_data = 0;
 
 	if (**ptr == '\"') {
 		*type = JSON_STRING;
-		return parse_string2(ptr, (char**)value);
+		return parse_string2(ptr, value);
 	}
 
 	if (**ptr == 't' || **ptr == 'f') {
 		*type = JSON_BOOL;
-		return parse_bool2(ptr, (bool**)value);
+		return parse_bool2(ptr, value);
 	}
 
 	if (**ptr == 'n') {
 		*type = JSON_NULL;
-		return parse_null2(ptr, value);
+		return parse_null2(ptr);
 	}
 
 	if (**ptr == '[') {
 		*type = JSON_ARRAY;
-		return parse_array2(ptr, (Json_Object**)value);
+		return parse_array2(ptr, value);
 	}
 
-	if (**ptr = '{') {
+	if (**ptr == '{') {
 		*type = JSON_OBJECT;
-		return parse_object2(ptr, (Json_Object**)value);
+		return parse_object2(ptr, value);
 	}
 
 	if (**ptr == '-' || json_is_dec_digit(**ptr)) {
@@ -814,10 +789,11 @@ static int parse_value2(char** ptr, enum Json_Object_Type* type, void** value)
 	return JSON_ERROR_VALUE;
 }
 
-static int parse_object2(char** ptr, Json_Object** object)
+static int parse_object2(char** ptr, Json_Node_Value* object)
 {
-	*object = malloc(sizeof(Json_Object));
-	memset(*object, 0, sizeof(Json_Object));
+	object->child = malloc(sizeof(Json_Node));
+	memset(object->child, 0, sizeof(Json_Node));
+	object->child->type = JSON_OBJECT;
 
 	// S0: Expecting { character
 	// S1: Expecting " character, ignores whitespace
@@ -827,7 +803,7 @@ static int parse_object2(char** ptr, Json_Object** object)
 	enum object_machine_state { S0, S1, S2, S3, S4 };
 	enum object_machine_state state = S0;
 
-	Json_Object* last_child = NULL;
+	Json_Node* last_child = NULL;
 
 	int error = 0;
 	char* current_key;
@@ -842,10 +818,10 @@ static int parse_object2(char** ptr, Json_Object** object)
 			case S1:	if (*it == '}') goto OBJ_SUCCESS;
 						else if (json_is_whitespace(*it)) state = S1;
 						else if (*it == '\"') {
-							if ((error = parse_string2(&it, &current_key)))
+							Json_Node_Value value;
+							if ((error = parse_string2(&it, &value)))
 								goto OBJ_ERR;
-
-							--it;
+							current_key = value.string_data;
 							state = S2;
 						}
 						break;
@@ -862,29 +838,24 @@ static int parse_object2(char** ptr, Json_Object** object)
 						else {
 							
 							// Parse JSON value
-							void* value;
-							enum Json_Object_Type type;
+							Json_Node_Value value;
+							enum Json_Node_Type type;
 							if ((error = parse_value2(&it, &type, &value))) 
 								goto OBJ_ERR;
 
 							// Populate node
-							Json_Object* child;
-							if (type == JSON_ARRAY || JSON_OBJECT) {
-								child = (Json_Object*)value;
+							Json_Node* child;
+							if (type == JSON_ARRAY || type == JSON_OBJECT) {
+								child = value.child; 
 							}
 							else {
-								child = malloc(sizeof(Json_Object));
-								memset(child, 0, sizeof(Json_Object));
+								child = malloc(sizeof(Json_Node));
+								memset(child, 0, sizeof(Json_Node));
+								child->value = value;
 							}
 							child->type = type;
 							child->key = current_key;
 							current_key = NULL;
-							switch (type) {
-								case JSON_INT:
-								case JSON_BOOL: child->int_data = (long)value; break;
-								case JSON_STRING: child->string_data = (char*)value; break;
-								case JSON_DOUBLE: child->double_data = (double)(long)value; break;
-							}
 
 							// Insert node into parent
 							if (last_child) {
@@ -892,11 +863,10 @@ static int parse_object2(char** ptr, Json_Object** object)
 								child->prev = last_child;
 							}
 							else {
-								(*object)->child = child;
+								// TODO: WTF?
+								object->child->value.child = child;
 							}
 							last_child = child;
-
-							--it;
 							state = S4;
 						}
 						break;
@@ -909,7 +879,7 @@ static int parse_object2(char** ptr, Json_Object** object)
 	}
 
 OBJ_SUCCESS:
-	*ptr = ++it;
+	*ptr = it;
 	return JSON_OK;
 
 OBJ_ERR:
@@ -918,4 +888,34 @@ OBJ_ERR:
 	if (current_key)
 		free(current_key);
 	return error;
+}
+
+int json_parse2(char* json, Json_Node** object)
+{
+	while (*json != '{' && *json != '\0') json++;
+
+	int err;
+	Json_Node_Value value;
+	if ((err = parse_object2(&json, &value))) {
+		*object = NULL;
+		return err;
+	}
+
+	*object = value.child;
+	return JSON_OK;
+}
+
+Json_Node* json_get(Json_Node* object, char* key)
+{
+	if (object == NULL || object->type != JSON_OBJECT)
+		return NULL;
+
+	Json_Node* p = object->value.child;
+	while (p) {
+		if (strcmp(p->key, key) == 0)
+			return p;
+		p = p->next;
+	}
+
+	return NULL;
 }

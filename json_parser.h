@@ -1,7 +1,7 @@
 #ifndef JSON_PARSER_H
 #define JSON_PARSER_H
 
-#include "hashtable.h"
+#include <stdbool.h>
 
 #define JSON_OK 			0x0
 #define JSON_ERROR_VALUE 	0x1
@@ -12,27 +12,43 @@
 #define JSON_ERROR_OBJECT	0x6
 #define JSON_ERROR_NUMBER	0x7
 
-enum Json_Object_Type { JSON_NULL, JSON_BOOL, JSON_ARRAY, JSON_OBJECT, JSON_INT, JSON_DOUBLE, JSON_STRING };
-typedef struct Json_Object
+typedef struct Json_Node Json_Node;
+typedef enum Json_Node_Type Json_Node_Type;
+typedef union Json_Node_Value Json_Node_Value;
+
+enum Json_Node_Type
+{ 
+	JSON_UNKNOWN, 
+	JSON_NULL, 
+	JSON_BOOL, 
+	JSON_ARRAY, 
+	JSON_OBJECT, 
+	JSON_LONG, 
+	JSON_DOUBLE, 
+	JSON_STRING
+};
+
+union Json_Node_Value
+{
+	long long_data;
+	bool bool_data;
+	char* string_data;
+	double double_data;
+	Json_Node* child;
+};
+
+struct Json_Node
 {
 	char* key;
-	struct Json_Object* next;
-	struct Json_Object* prev;
-	struct Json_Object* child;
+	Json_Node* next;
+	Json_Node* prev;
 
-	enum Json_Object_Type type;
+	Json_Node_Type type;
+	Json_Node_Value value;
+};
 
-	union {
-		long int_data;
-		int array_len;
-		char* string_data;
-		double double_data;
-	};
-
-} Json_Object;
-
-hashtable_t* json_parse(char* json);
-int json_parse2(char* json, Json_Object** object);
-void json_delete(Json_Object* json);
+int json_parse2(char* json, Json_Node** object);
+Json_Node* json_get(Json_Node* object, char* key);
+void json_delete(Json_Node* json);
 
 #endif
