@@ -5,6 +5,11 @@
 
 #include "json_parser.h"
 
+#ifndef ARENA_IMPLEMENTATION
+#define ARENA_IMPLEMENTATION
+#endif // ARENA_IMPLEMENTATION
+#include "arena.h"
+
 // Utilities
 static uint8_t json_is_whitespace(const char c)
 {
@@ -42,7 +47,7 @@ static uint8_t json_is_num_delim(const char c)
 	return strchr(num_delim, c) != NULL;
 }
 
-static int parse_string(char** ptr, Json_Node_Value* value)
+static int parse_string(char** ptr, Json_Node_Value* value, Arena* arena)
 {
 	value->string_data = NULL;
 
@@ -85,7 +90,9 @@ static int parse_string(char** ptr, Json_Node_Value* value)
 
 STR_SUCCESS:
 	size_t len = it - *ptr;
-	value->string_data = malloc(len);
+	value->string_data = arena_alloc(arena, len);
+	if (value->string_data == NULL)
+		return JSON_ERROR_OOM;
 	memcpy(value->string_data, (*ptr) + 1, len - 1);
 	value->string_data[len-1] = '\0';
 
@@ -158,7 +165,7 @@ BOOL_SUCCESS:
 	return JSON_OK;
 }
 
-static int parse_null2(char** ptr)
+static int parse_null(char** ptr)
 {
 	// S0: Expecting n character
 	// S1: Expecting u character
@@ -190,12 +197,14 @@ NULL_SUCCESS:
 	return JSON_OK;
 }
 
-static int parse_value2(char** ptr, enum Json_Node_Type* type, Json_Node_Value* value);
-static int parse_object(char** ptr, Json_Node_Value* value);
+static int parse_value(char** ptr, enum Json_Node_Type* type, Json_Node_Value* value, Arena* arena);
+static int parse_object(char** ptr, Json_Node_Value* value, Arena* arena);
 
-static int parse_array(char** ptr, Json_Node_Value* array)
+static int parse_array(char** ptr, Json_Node_Value* array, Arena* arena)
 {
-	array->child = malloc(sizeof(Json_Node));
+	array->child = arena_alloc(arena, sizeof(Json_Node));
+	if (array->child == NULL)
+		return JSON_ERROR_OOM;
 	memset(array->child, 0, sizeof(Json_Node));
 	array->child->type = JSON_ARRAY;
 
@@ -208,7 +217,7 @@ static int parse_array(char** ptr, Json_Node_Value* array)
 
 	Json_Node* last_child = NULL;
 
-	int error;
+	int error = JSON_ERROR_ARRAY;
 	char* it;
 	for (it = *ptr; *it != '\0'; ++it) {
 		switch (state) {
@@ -224,7 +233,7 @@ static int parse_array(char** ptr, Json_Node_Value* array)
 							// Parse JSON value
 							Json_Node_Value value;
 							enum Json_Node_Type type;
-							if ((error = parse_value2(&it, &type, &value))) 
+							if ((error = parse_value(&it, &type, &value, arena))) 
 								goto ARR_ERR;
 
 							// Populate node
@@ -233,7 +242,7 @@ static int parse_array(char** ptr, Json_Node_Value* array)
 								child = value.child;
 							}
 							else {
-								child = malloc(sizeof(Json_Node));
+								child = arena_alloc(arena, sizeof(Json_Node));
 								memset(child, 0, sizeof(Json_Node));
 								child->value = value;
 							}
@@ -264,7 +273,7 @@ static int parse_array(char** ptr, Json_Node_Value* array)
 							// Parse JSON value
 							Json_Node_Value value;
 							enum Json_Node_Type type;
-							if ((error = parse_value2(&it, &type, &value))) 
+							if ((error = parse_value(&it, &type, &value, arena))) 
 								goto ARR_ERR;
 
 							// Populate node
@@ -273,7 +282,9 @@ static int parse_array(char** ptr, Json_Node_Value* array)
 								child = value.child;
 							}
 							else {
-								child = malloc(sizeof(Json_Node));
+								child = arena_alloc(arena, sizeof(Json_Node));
+								if (child == NULL)
+									return JSON_ERROR_OOM;
 								memset(child, 0, sizeof(Json_Node));
 								child->value = value;
 							}
@@ -303,7 +314,7 @@ ARR_ERR:
 		p = temp;
 	}
 	free(array->child);
-	return JSON_ERROR_ARRAY;
+	return error;
 
 ARR_SUCCESS:
 	*ptr = it;
@@ -396,13 +407,13 @@ NUM_SUCCESS:;
 	return JSON_OK;
 }
 
-static int parse_value2(char** ptr, enum Json_Node_Type* type, Json_Node_Value* value)
+static int parse_value(char** ptr, enum Json_Node_Type* type, Json_Node_Value* value, Arena* arena)
 {
 	value->long_data = 0;
 
 	if (**ptr == '\"') {
 		*type = JSON_STRING;
-		return parse_string(ptr, value);
+		return parse_string(ptr, value, arena);
 	}
 
 	if (**ptr == 't' || **ptr == 'f') {
@@ -412,17 +423,17 @@ static int parse_value2(char** ptr, enum Json_Node_Type* type, Json_Node_Value* 
 
 	if (**ptr == 'n') {
 		*type = JSON_NULL;
-		return parse_null2(ptr);
+		return parse_null(ptr);
 	}
 
 	if (**ptr == '[') {
 		*type = JSON_ARRAY;
-		return parse_array(ptr, value);
+		return parse_array(ptr, value, arena);
 	}
 
 	if (**ptr == '{') {
 		*type = JSON_OBJECT;
-		return parse_object(ptr, value);
+		return parse_object(ptr, value, arena);
 	}
 
 	if (**ptr == '-' || json_is_dec_digit(**ptr)) {
@@ -433,9 +444,11 @@ static int parse_value2(char** ptr, enum Json_Node_Type* type, Json_Node_Value* 
 	return JSON_ERROR_VALUE;
 }
 
-static int parse_object(char** ptr, Json_Node_Value* object)
+static int parse_object(char** ptr, Json_Node_Value* object, Arena* arena)
 {
-	object->child = malloc(sizeof(Json_Node));
+	object->child = arena_alloc(arena, sizeof(Json_Node));
+	if (object->child == NULL)
+		return JSON_ERROR_OOM;
 	memset(object->child, 0, sizeof(Json_Node));
 	object->child->type = JSON_OBJECT;
 
@@ -463,7 +476,7 @@ static int parse_object(char** ptr, Json_Node_Value* object)
 						else if (json_is_whitespace(*it)) state = S1;
 						else if (*it == '\"') {
 							Json_Node_Value value;
-							if ((error = parse_string(&it, &value)))
+							if ((error = parse_string(&it, &value, arena)))
 								goto OBJ_ERR;
 							current_key = value.string_data;
 							state = S2;
@@ -484,7 +497,7 @@ static int parse_object(char** ptr, Json_Node_Value* object)
 							// Parse JSON value
 							Json_Node_Value value;
 							enum Json_Node_Type type;
-							if ((error = parse_value2(&it, &type, &value))) 
+							if ((error = parse_value(&it, &type, &value, arena))) 
 								goto OBJ_ERR;
 
 							// Populate node
@@ -493,7 +506,9 @@ static int parse_object(char** ptr, Json_Node_Value* object)
 								child = value.child; 
 							}
 							else {
-								child = malloc(sizeof(Json_Node));
+								child = arena_alloc(arena, sizeof(Json_Node));
+								if (child == NULL)
+									return JSON_ERROR_OOM;
 								memset(child, 0, sizeof(Json_Node));
 								child->value = value;
 							}
@@ -527,21 +542,18 @@ OBJ_SUCCESS:
 	return JSON_OK;
 
 OBJ_ERR:
-	// Do not cleanup individual nodes
-	// Object cleanup from error will come from the root
-	if (current_key)
-		free(current_key);
 	return error;
 }
 
-Json_Node* json_parse(char* json, int* error)
+Json_Node* json_parse(char* json, int* error, Arena* arena)
 {
 	*error = 0;
 	while (*json != '{' && *json != '\0') json++;
 
 	Json_Node_Value value;
-	if ((*error = parse_object(&json, &value))) {
-		json_delete(value.child);
+	unsigned char* checkpoint = arena_checkpoint(arena);
+	if ((*error = parse_object(&json, &value, arena))) {
+		arena_rollback(arena, checkpoint);
 		return NULL;
 	}
 	
@@ -561,21 +573,4 @@ Json_Node* json_get(Json_Node* object, char* key)
 	}
 
 	return NULL;
-}
-
-void json_delete(Json_Node* object)
-{
-	if (!object)
-		return;
-
-	if (object->key)
-		free(object->key);
-
-	if (object->type == JSON_OBJECT || object->type == JSON_ARRAY)
-		json_delete(object->value.child);
-
-	if (object->next)
-		json_delete(object->next);
-	
-	free(object);
 }

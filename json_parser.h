@@ -1,6 +1,7 @@
 #ifndef JSON_PARSER_H
 #define JSON_PARSER_H
 
+#include "arena.h"
 #include <stdbool.h>
 
 #define JSON_OK 			0x0
@@ -11,6 +12,7 @@
 #define JSON_ERROR_ARRAY	0x5
 #define JSON_ERROR_OBJECT	0x6
 #define JSON_ERROR_NUMBER	0x7
+#define JSON_ERROR_OOM		0x8
 
 typedef struct Json_Node Json_Node;
 typedef enum Json_Node_Type Json_Node_Type;
@@ -47,8 +49,7 @@ struct Json_Node
 	Json_Node_Value value;
 };
 
-Json_Node* json_parse(char* json, int* error);
+Json_Node* json_parse(char* json, int* error, Arena* arena);
 Json_Node* json_get(Json_Node* object, char* key);
-void json_delete(Json_Node* object);
 
 #endif
